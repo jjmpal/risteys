@@ -58,9 +58,6 @@ defmodule RegexICD do
     Logger.debug(fn -> "expanding regex: #{regex}" end)
 
     case regex do
-      "" ->
-        []
-
       "NA" ->
         []
 
@@ -179,6 +176,7 @@ endpoints_path
                   "CONDITIONS" => conditions,
                   "OUTPAT_ICD" => outpat_icd,
                   "HD_MAINONLY" => hd_mainonly,
+		  "HD_ICD_10_ATC" => !!TODO!!,
                   "HD_ICD_10" => hd_icd_10,
                   "HD_ICD_9" => hd_icd_9,
                   "HD_ICD_8" => hd_icd_8,
@@ -200,11 +198,19 @@ endpoints_path
                   "KELA_REIMB_ICD" => kela_reimb_icd,
                   "KELA_ATC_NEEDOTHER" => kela_atc_needother,
                   "KELA_ATC" => kela_atc,
+		  "KELA_VNRO_NEEDOTHER" => !!TODO!!,
+		  "KELA_VNRO" => !!TODO!!,
                   "CANC_TOPO" => canc_topo,
+		  "CANC_TOPO_EXCL" => !!TODO!!,
                   "CANC_MORPH" => canc_morph,
+		  "CANC_MORPH_EXCL" => !!TODO!!,
                   "CANC_BEHAV" => canc_behav,
                   "Special" => special,
-                  "version" => version
+                  "version" => version,
+		  "Latin" => !!TODO!!,
+		  "CONTROL_EXCLUDE" => !!TODO!!,
+		  "CONTROL_PRECONDITIONS" => !!TODO!!,
+		  "CONTROL_CONDITIONS" => !!TODO!!
                 } ->
   Logger.info("Processing phenocode: #{name}")
 
