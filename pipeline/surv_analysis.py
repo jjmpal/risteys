@@ -162,6 +162,7 @@ def create_csv_writers(output_path, error_path):
     res_writer.writerow([
         "prior",
         "later",
+        "nindivs_exposed",
         "nindivs_prior_later",
         "lagged_hr_cut_year",
         "median_duration",
@@ -186,6 +187,20 @@ def create_csv_writers(output_path, error_path):
         "sex_ci_upper",
         "sex_pval",
         "sex_zval",
+        "smoker_coef",
+        "smoker_se",
+        "smoker_hr",
+        "smoker_ci_lower",
+        "smoker_ci_upper",
+        "smoker_pval",
+        "smoker_zval",
+        "bmi_coef",
+        "bmi_se",
+        "bmi_hr",
+        "bmi_ci_lower",
+        "bmi_ci_upper",
+        "bmi_pval",
+        "bmi_zval",
         "nsubjects",
         "nevents",
         "partial_log_likelihood",
@@ -251,7 +266,7 @@ def load_data(pairs_path, phenotypes_path, definitions_path, minimum_path):
     sex_info = pd.read_csv(
         minimum_path,
         dialect=csv.excel_tab,
-        usecols=["FINNGENID", "SEX"]
+        usecols=["FINNGENID", "SEX", "HEIGHT", "WEIGHT", "SMOKE3"]
     )
     # Merge sex info into the phenotypes Dataframe.
     # This can remove individuals as it leaves only the indviduals
@@ -280,6 +295,17 @@ def clean_data(df, endpoints):
     # Set SEX=1 for males and SEX=2 for females
     df.loc[:, "SEX"] = df.loc[:, "SEX"].replace({"female": 2, "male": 1})
 
+    df = df[df[['SMOKE3', 'HEIGHT', 'WEIGHT']].notnull().all(1)]
+
+    # Combine smoker status
+    df.loc[:, "SMOKER"] = df.loc[:, "SMOKE3"].replace({"current": 1, "former": 1, "never": 0})
+
+    # Calculate BMI as 10000*weight/(height*height)
+    df["BMI"] = df.apply(lambda x: 10000*x.WEIGHT/(x.HEIGHT)**2, axis=1)
+
+    # Drop helper columns from data frame
+    df.drop(["SMOKE3", "HEIGHT", "WEIGHT"], axis=1, inplace=True)
+    
     # Set _AGE to NaN for individuals that have endpoint = False
     for endpoint in endpoints:
         df.loc[~ df[endpoint], endpoint + SUFFIX_AGE] = np.nan
@@ -312,10 +338,11 @@ def compute_coxhr(pair, df, definitions, res_writer, error_writer):
 
     # Standard Cox regression on the whole timeline
     lagged_hr_cut_year = np.nan
+    nexposed, _ = exposed.shape
     nindivs, _ = exposed[exposed.outcome].shape
     try:
         durations_std = set_durations(prior, later, no_prior, unexposed, exposed)
-        cox_fit(durations_std, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
+        cox_fit(durations_std, prior, later, nexposed, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
     except (AssertionError, RuntimeWarning) as exc:
         logger.warning(exc)
         error_writer.writerow([prior, later, lagged_hr_cut_year, type(exc), exc])
@@ -323,10 +350,11 @@ def compute_coxhr(pair, df, definitions, res_writer, error_writer):
     # 1 year lag
     lagged_hr_cut_year = 1.0
     exposed_1y = set_exposed_lag(exposed, lagged_hr_cut_year)
+    nexposed, _ = exposed_1y.shape
     nindivs, _ = exposed_1y[exposed_1y.outcome].shape
     try:
         durations_1y = set_durations(prior, later, no_prior, unexposed, exposed_1y)
-        cox_fit(durations_1y, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
+        cox_fit(durations_1y, prior, later, nexposed, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
     except (AssertionError, RuntimeWarning) as exc:
         logger.warning(exc)
         error_writer.writerow([prior, later, lagged_hr_cut_year, type(exc), exc])
@@ -334,10 +362,11 @@ def compute_coxhr(pair, df, definitions, res_writer, error_writer):
     # 5 year lag
     lagged_hr_cut_year = 5.0
     exposed_5y = set_exposed_lag(exposed, lagged_hr_cut_year)
+    nexposed, _ = exposed_5y.shape
     nindivs, _ = exposed_5y[exposed_5y.outcome].shape
     try:
         durations_5y = set_durations(prior, later, no_prior, unexposed, exposed_5y)
-        cox_fit(durations_5y, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
+        cox_fit(durations_5y, prior, later, nexposed, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
     except (AssertionError, RuntimeWarning) as exc:
         logger.warning(exc)
         error_writer.writerow([prior, later, lagged_hr_cut_year, type(exc), exc])
@@ -345,10 +374,11 @@ def compute_coxhr(pair, df, definitions, res_writer, error_writer):
     # 15 year lag
     lagged_hr_cut_year = 15.0
     exposed_15y = set_exposed_lag(exposed, lagged_hr_cut_year)
+    nexposed, _ = exposed_15y.shape
     nindivs, _ = exposed_15y[exposed_15y.outcome].shape
     try:
         durations_15y = set_durations(prior, later, no_prior, unexposed, exposed_15y)
-        cox_fit(durations_15y, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
+        cox_fit(durations_15y, prior, later, nexposed, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer)
     except (AssertionError, RuntimeWarning) as exc:
         logger.warning(exc)
         error_writer.writerow([prior, later, lagged_hr_cut_year, type(exc), exc])
@@ -464,7 +494,7 @@ def set_exposed_lag(exposed, cut_year):
     return df
 
 
-def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer):
+def cox_fit(df, prior, later, nexposed, nindivs, lagged_hr_cut_year, is_sex_specific, res_writer, error_writer):
     """Fit the data for the Cox regression and write output to result file"""
     logger.info(f"Fitting data to Cox model  (lag: {lagged_hr_cut_year})")
     # First try with a somewhat big step_size to go fast, retry later
@@ -475,7 +505,7 @@ def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_
     cox_fit_success = False  # keep track of when we need to write out the results
 
     # Set covariates depending on outcome being sex-specific
-    cols = ["duration", "outcome", "pred_prior", "birth_year"]
+    cols = ["duration", "outcome", "pred_prior", "birth_year", "SMOKER", "BMI"]
     if not is_sex_specific:
         cols.append("SEX")
     df = df.loc[:, cols]
@@ -500,6 +530,22 @@ def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_
     year_pval = np.nan
     year_zval = np.nan
 
+    smoker_coef = np.nan
+    smoker_se = np.nan
+    smoker_hr = np.nan
+    smoker_ci_lower = np.nan
+    smoker_ci_upper = np.nan
+    smoker_pval = np.nan
+    smoker_zval = np.nan
+
+    bmi_coef = np.nan
+    bmi_se = np.nan
+    bmi_hr = np.nan
+    bmi_ci_lower = np.nan
+    bmi_ci_upper = np.nan
+    bmi_pval = np.nan
+    bmi_zval = np.nan
+    
     sex_coef = np.nan
     sex_se = np.nan
     sex_hr = np.nan
@@ -564,6 +610,22 @@ def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_
         year_pval = cph.summary.p["birth_year"]
         year_zval = cph.summary.z["birth_year"]
 
+        smoker_coef = cph.params_["SMOKER"]
+        smoker_se = cph.standard_errors_["SMOKER"]
+        smoker_hr = np.exp(smoker_coef)
+        smoker_ci_lower = np.exp(smoker_coef - 1.96 * smoker_se)
+        smoker_ci_upper = np.exp(smoker_coef + 1.96 * smoker_se)
+        smoker_pval = cph.summary.p["SMOKER"]
+        smoker_zval = cph.summary.z["SMOKER"]
+
+        bmi_coef = cph.params_["BMI"]
+        bmi_se = cph.standard_errors_["BMI"]
+        bmi_hr = np.exp(bmi_coef)
+        bmi_ci_lower = np.exp(bmi_coef - 1.96 * bmi_se)
+        bmi_ci_upper = np.exp(bmi_coef + 1.96 * bmi_se)
+        bmi_pval = cph.summary.p["BMI"]
+        bmi_zval = cph.summary.z["BMI"]
+        
         if not is_sex_specific:
             sex_coef = cph.params_["SEX"]
             sex_se = cph.standard_errors_["SEX"]
@@ -586,6 +648,7 @@ def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_
     res_writer.writerow([
         prior,
         later,
+        nexposed,
         nindivs,
         lagged_hr_cut_year,
         median_duration,
@@ -610,6 +673,20 @@ def cox_fit(df, prior, later, nindivs, lagged_hr_cut_year, is_sex_specific, res_
         sex_ci_upper,
         sex_pval,
         sex_zval,
+        smoker_coef,
+        smoker_se,
+        smoker_hr,
+        smoker_ci_lower,
+        smoker_ci_upper,
+        smoker_pval,
+        smoker_zval,
+        bmi_coef,
+        bmi_se,
+        bmi_hr,
+        bmi_ci_lower,
+        bmi_ci_upper,
+        bmi_pval,
+        bmi_zval,
         nsubjects,
         nevents,
         partial_log_likelihood,
